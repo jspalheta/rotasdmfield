@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<title>Rotas DM Field · Novembro</title>
+<title>Rotas DM Field · Projeto 24h</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -321,6 +321,7 @@ function waText(rec){
   if(rec.realizou){ t+=`*Positivou?* ${rec.positivou?'SIM':'NÃO'}\n`; if(rec.positivou) t+=`*O que positivou:* ${rec.itens.join(', ')}\n`; }
   else t+=`*Motivo:* ${rec.motivo}\n`;
   if(rec.obs) t+=`*Observação:* ${rec.obs}\n`;
+  if(c[C.p24]) t+=`*Projeto 24h:* ${c[C.p24].s}${c[C.p24].r?' (recusou '+c[C.p24].r+')':''} em ${fmtTS(c[C.p24].t)}\n`;
   if(prev.length){ t+=`\n*Histórico do cliente:*\n`+prev.map(p=>`• ${fmtTS(p.ts)} - ${resultLine(p)}${p.obs?' ('+p.obs+')':''}`).join('\n'); }
   return t;
 }
@@ -362,9 +363,18 @@ function stats(recs, filterRows){
   const itens=ITENS.map(it=>pos.filter(r=>r.itens.includes(it)).length);
   const mot=MOTIVOS.map(m=>last.filter(r=>!r.realizou&&r.motivo===m).length);
   const plannedToDate=filterRows.filter(r=>r[C.data]<=todayISO).length;
-  const vis=filterRows.filter(r=>recs[r[C.cod]]||r[C.atendido]).length;
+  const vis=filterRows.filter(r=>recs[r[C.cod]]||r[C.atendido]||r[C.p24]).length;
   return {vis, reg:last.length, real:real.length, pos:pos.length, itens, mot, plannedToDate, base:filterRows.length};
 }
+const P24S = ['APP','PROJETO','APP E PROJETO'];
+function p24stats(rs){
+  const pr=rs.filter(r=>r[C.origem]), v=pr.filter(r=>r[C.p24]);
+  const ad=v.filter(r=>r[C.p24].s==='Aderiu').length, na=v.length-ad;
+  const rec=P24S.map(k=>v.filter(r=>r[C.p24].s!=='Aderiu'&&r[C.p24].r===k).length);
+  return {proj:pr.length, vis:v.length, ad, na, falta:pr.length-v.length, rec, semInfo:na-rec.reduce((a,b)=>a+b,0)};
+}
+function p24pill(r){ const p=r[C.p24]; if(!p) return r[C.origem]?'<span class="pill red">Projeto 24h</span>':'';
+  return p.s==='Aderiu'?'<span class="pill ok">Aderiu 24h</span>':`<span class="pill">Não aderiu 24h${p.r?' · '+esc(p.r):''}</span>`; }
 function home(){
   const last=latestByCod();
   const per=DEVS.map((_,i)=>stats(last,rows.filter(r=>r[C.dev]===i)));
@@ -375,6 +385,26 @@ function home(){
     ${syncHTML()}
   </section>`;
   redraw=()=>{};
+}
+function p24panel(base, dev){
+  const P=p24stats(base); if(!P.proj) return '';
+  const maxR=Math.max(1,...P.rec,P.semInfo);
+  let tbl='';
+  if(dev===null){
+    const per=DEVS.map((_,i)=>p24stats(rows.filter(r=>r[C.dev]===i)));
+    tbl=`<div class="scroll" style="margin-top:12px"><table class="t"><thead><tr><th>Desenvolvedor</th><th>Clientes 24h</th><th>Visitados</th><th>Aderiu</th><th>Não aderiu</th><th>A visitar</th><th>Adesão</th></tr></thead>
+      <tbody>${per.map((p,i)=>`<tr><td>${esc(DEVS[i])}</td><td>${p.proj}</td><td>${p.vis}</td><td>${p.ad}</td><td>${p.na}</td><td>${p.falta}</td><td>${pct(p.ad,p.vis)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td>${P.proj}</td><td>${P.vis}</td><td>${P.ad}</td><td>${P.na}</td><td>${P.falta}</td><td>${pct(P.ad,P.vis)}</td></tr></tfoot></table></div>`;
+  }
+  return `<div class="panel"><h3>Projeto 24h</h3>
+    <div class="kpis" style="margin-top:10px">
+      <div class="kpi"><span class="eyebrow">Clientes do projeto</span><b class="num">${P.proj}</b><small>${P.falta} ainda a visitar</small></div>
+      <div class="kpi"><span class="eyebrow">Visitados</span><b class="num">${P.vis}</b><small>${pct(P.vis,P.proj)} do projeto</small></div>
+      <div class="kpi"><span class="eyebrow">Aderiu</span><b class="num red">${P.ad}</b><small>adesão de ${pct(P.ad,P.vis)} dos visitados</small></div>
+      <div class="kpi"><span class="eyebrow">Não aderiu</span><b class="num">${P.na}</b><small>com observação do desenvolvedor</small></div>
+    </div>
+    ${P.na?`<div class="bars"><span class="eyebrow" style="margin-top:6px">Não aderiu · o que recusou</span>${P24S.map((k,j)=>`<div class="bar" style="--c:var(--muted)"><span>${k}</span><span class="t"><b style="width:${P.rec[j]/maxR*100}%"></b></span><span class="v">${P.rec[j]}</span></div>`).join('')}${P.semInfo?`<div class="bar" style="--c:var(--muted)"><span>Só observação</span><span class="t"><b style="width:${P.semInfo/maxR*100}%"></b></span><span class="v">${P.semInfo}</span></div>`:''}</div>`:''}
+    ${tbl}</div>`;
 }
 function summary(dev){
   const app=document.getElementById('app'); const last=latestByCod(); const all=allRecs();
@@ -396,14 +426,15 @@ function summary(dev){
   }
   app.innerHTML=`<section style="display:grid;gap:14px">
     <div class="sechead"><div><span class="eyebrow">Resumo executivo</span><h2>${dev===null?'Equipe DM Field':esc(DEVS[dev])}</h2>
-      <p class="lead">${dev===null?'Base de novembro/2026 dividida entre 6 desenvolvedores em territórios contínuos, com 19 dias úteis de rota.':`${base.length} clientes na rota de novembro/2026, em 19 dias úteis.`} Os números de execução se atualizam conforme as visitas são registradas.</p></div>${syncHTML()}</div>
+      <p class="lead">${base.filter(r=>r[C.origem]).length} clientes do Projeto 24h e ${base.filter(r=>!r[C.origem]).length} da base de novembro, com rota nos dias úteis restantes (23 a 27 e 30/11). As visitas do projeto feitas de 17 a 19/11 aparecem como concluídas.</p></div>${syncHTML()}</div>
     <div class="kpis">
-      <div class="kpi"><span class="eyebrow">Base de clientes</span><b class="num">${S.base.toLocaleString('pt-BR')}</b><small>${(S.base/19).toLocaleString('pt-BR',{maximumFractionDigits:1})} visitas/dia${dev===null?' por equipe':''}</small></div>
+      <div class="kpi"><span class="eyebrow">Base de clientes</span><b class="num">${S.base.toLocaleString('pt-BR')}</b><small>${base.filter(r=>r[C.origem]).length} do Projeto 24h · ${base.filter(r=>!r[C.origem]).length} da base de novembro</small></div>
       <div class="kpi"><span class="eyebrow">Visitas registradas</span><b class="num">${S.reg}</b><small>${S.plannedToDate} planejadas até hoje (${pct(S.reg,S.plannedToDate)})</small></div>
       <div class="kpi"><span class="eyebrow">Atendimento realizado</span><b class="num">${pct(S.real,S.reg)}</b><small>${S.real} de ${S.reg} visitas</small></div>
       <div class="kpi"><span class="eyebrow">Positivação</span><b class="num red">${pct(S.pos,S.real)}</b><small>${S.pos} clientes positivados</small></div>
       <div class="kpi"><span class="eyebrow">Aguardando envio</span><b class="num">${pendAll.length}</b><small>registros ainda não abertos no WhatsApp</small></div>
     </div>
+    ${p24panel(base, dev)}
     <div class="grid2">
       <div class="panel"><h3>O que positivou</h3><div class="bars">${ITENS.map((it,k)=>`<div class="bar"><span>${it}</span><span class="t"><b style="width:${S.itens[k]/maxI*100}%"></b></span><span class="v">${S.itens[k]}</span></div>`).join('')}</div>
         <p class="sub" style="margin:10px 0 0">Um cliente pode positivar mais de uma categoria.</p></div>
@@ -414,33 +445,31 @@ function summary(dev){
       <div class="panel"><h3>Territórios</h3><div class="mapbox" style="margin-top:10px"><canvas id="ovmap" aria-label="Mapa dos territórios"></canvas></div>
         <div class="legend">${DEVS.map((d,i)=>`<span style="--c:var(--d${i})"><i></i>${esc(d)}</span>`).join('')}</div></div>
       <div class="panel" style="display:grid;gap:14px;align-content:start"><h3>Premissas do planejamento</h3><div class="notes">
-        <div><b>19 dias úteis</b>Sem 02/11 (Finados) e 20/11 (Consciência Negra). Novembro tem 3 sextas.</div>
-        <div><b>Dia de pedido</b>Cada cliente é visitado no seu Dia de Visita. "Seg - Qua" entra no dia que deixa a rota mais curta.</div>
-        <div><b>Até 18 por dia</b>Média de 13,8 visitas/dia. Sextas ficam mais cheias porque concentram mais clientes.</div>
-        <div><b>Carteira mantida</b>Os ${rows.filter(r=>r[C.atendido]).length} clientes já atendidos seguem com o mesmo desenvolvedor.</div>
-        <div><b>Trindade</b>Concentrada no André (177 clientes), junto com o oeste de Goiânia.</div>
-        <div><b>Base</b>1.572 clientes. O cliente 1164251 foi retirado.</div>
+        <div><b>Projeto 24h</b>347 clientes com o desenvolvedor da divisão do projeto. Quem já foi visitado aparece concluído no dia da visita, com o status e a observação.</div>
+        <div><b>Complemento</b>Até 70 clientes da base de novembro por desenvolvedor, os mais próximos da área dele no projeto e ainda não programados até 19/11.</div>
+        <div><b>Dias restantes</b>23, 24, 25, 26, 27 e 30/11 (20/11 é feriado). Até 18 visitas por dia, agrupadas por região.</div>
+        <div><b>Dia de pedido</b>Nesta etapa a rota segue a região; o Dia de Visita aparece em cada cliente para consulta.</div>
       </div></div></div>`:''}
   </section>`;
   const cv=document.getElementById('ovmap');
-  redraw = cv ? ()=>drawMap(cv,{layers:[{type:'dots',rows,color:r=>css('--d'+r[C.dev]),r:2.6,alpha:.9},{type:'labels',items:[{lat:-16.672,lon:-49.505,text:'Trindade'},{lat:-16.62,lon:-49.27,text:'Goiânia'}]}]}) : ()=>{};
+  redraw = cv ? ()=>drawMap(cv,{layers:[{type:'dots',rows,color:r=>css('--d'+r[C.dev]),r:2.6,alpha:.9}]}) : ()=>{};
   redraw();
 }
 
 /* ================= developer view ================= */
 function gmapsLinks(rs){ const out=[],step=9; for(let i=0;i<rs.length-1;i+=step){ const seg=rs.slice(i,i+step+1); out.push({from:i+1,to:i+seg.length,url:'https://www.google.com/maps/dir/'+seg.map(r=>r[C.lat]+','+r[C.lon]).join('/')+'/'}); }
   if(rs.length===1) out.push({from:1,to:1,url:`https://www.google.com/maps/search/?api=1&query=${rs[0][C.lat]},${rs[0][C.lon]}`}); return out; }
-function datesFor(i){ return DATES.filter(d=> state.wd==='todos' || WD[dOf(d).getDay()]===state.wd); }
+function datesFor(i){ return DATES.filter(d=> byDevDay[i+'|'+d] && (state.wd==='todos' || WD[dOf(d).getDay()]===state.wd)); }
 function devView(i,keep){
   const app=document.getElementById('app'); const mine=rows.filter(r=>r[C.dev]===i); const last=latestByCod();
   let ds=datesFor(i); if(!ds.length){ state.wd='todos'; ds=DATES; }
   if(!state.date || !ds.includes(state.date)) state.date = ds.find(d=>d>=todayISO) || ds[0];
-  const reg=mine.filter(r=>last[r[C.cod]]||r[C.atendido]).length, pos=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].positivou).length, real=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].realizou).length;
+  const reg=mine.filter(r=>last[r[C.cod]]||r[C.atendido]||r[C.p24]).length, pos=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].positivou).length, real=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].realizou).length;
   const pend=allRecs().filter(r=>r.dev===i&&!r.waAt).sort((a,b)=>b.ts.localeCompare(a.ts));
   const scrollY=window.scrollY;
   app.innerHTML=`
   <section class="devhead sechead" style="--c:var(--d${i})"><div><span class="eyebrow">Rota de</span><h2>${esc(DEVS[i])}</h2>
-    <p class="lead">${mine.length} clientes · ${mine.filter(r=>r[C.atendido]).length} já atendidos mantidos · ${Math.round(DATES.reduce((s,d)=>s+km(i,d),0))} km estimados no mês</p></div>
+    <p class="lead">${mine.length} clientes · ${mine.filter(r=>r[C.origem]).length} do Projeto 24h (${mine.filter(r=>r[C.p24]&&r[C.p24].s==='Aderiu').length} aderiram) · ${mine.filter(r=>!r[C.origem]).length} da base de novembro</p></div>
     <div class="stats" style="align-items:end"><div><span class="eyebrow">Visitados</span><b class="num">${reg} / ${mine.length}</b></div><div><span class="eyebrow">Positivação</span><b class="num" style="color:var(--red-hi)">${pct(pos,real)}</b></div><a class="iconbtn" href="#resumo-${SLUG[i]}" title="Resumo executivo de ${esc(DEVS[i])}">${ICON_CHART} Resumo</a></div></section>
   ${pend.length?`<section class="pending"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>${pend.length} visita${pend.length>1?'s':''} registrada${pend.length>1?'s':''} aguardando envio no WhatsApp</strong></div>
     <div class="list">${pend.slice(0,8).map(r=>{const c=byCod[r.cod];return `<div class="it"><span><b>${esc(c[C.nome])}</b> <span class="sub">· ${fmtTS(r.ts)} · ${esc(resultLine(r))}</span></span><button class="btn wa" data-open="${r.cod}">Abrir e enviar</button></div>`}).join('')}${pend.length>8?`<span class="sub">e mais ${pend.length-8}…</span>`:''}</div></section>`:''}
@@ -448,7 +477,7 @@ function devView(i,keep){
     <div class="field"><label for="fwd">Dia de pedido</label><select id="fwd"><option value="todos">Todos os dias</option>${['Seg','Ter','Qua','Qui','Sex'].map(w=>`<option value="${w}" ${state.wd===w?'selected':''}>${WDL[WD.indexOf(w)][0].toUpperCase()+WDL[WD.indexOf(w)].slice(1)}</option>`).join('')}</select></div>
     <div class="field"><label for="fdt">Data</label><select id="fdt">${ds.map(d=>`<option value="${d}" ${d===state.date?'selected':''}>${WD[dOf(d).getDay()]} ${fmtD(d)} · ${(byDevDay[i+'|'+d]||[]).length} clientes</option>`).join('')}</select></div>
   </section>
-  <div class="strip" id="strip" role="group" aria-label="Datas">${ds.map(d=>{const rs=byDevDay[i+'|'+d]||[];const done=rs.filter(r=>last[r[C.cod]]).length;
+  <div class="strip" id="strip" role="group" aria-label="Datas">${ds.map(d=>{const rs=byDevDay[i+'|'+d]||[];const done=rs.filter(r=>last[r[C.cod]]||r[C.p24]).length;
     return `<button class="day${d===todayISO?' today':''}" data-date="${d}" aria-pressed="${d===state.date}"><span class="w">${d===todayISO?'Hoje':WD[dOf(d).getDay()]}</span><span class="d num">${dOf(d).getDate()}</span><span class="n">${done}/${rs.length}</span><span class="p"><b style="width:${rs.length?done/rs.length*100:0}%"></b></span></button>`}).join('')}</div>
   <div id="dayview"></div>`;
   document.getElementById('fwd').onchange=e=>{ state.wd=e.target.value; state.date=null; devView(i); };
@@ -468,9 +497,11 @@ function dayView(i){
       <div class="btns">${links.map(l=>`<a class="btn red" href="${l.url}" target="_blank" rel="noopener">Rota no Google Maps${links.length>1?` · ${l.from}–${l.to}`:''}</a>`).join('')}</div>
     </section>
     <section class="panel" style="padding-block:6px"><ol class="stops">${rs.map((r,k)=>{ const rec=last[r[C.cod]];
-      const st=!rec?'<span class="pill red">Pendente</span>':!rec.realizou?`<span class="pill">${esc(rec.motivo)}</span>`:rec.positivou?'<span class="pill ok">Positivou</span>':'<span class="pill warn">Não positivou</span>';
-      return `<li><button data-cod="${r[C.cod]}"><span class="pin ${rec?(rec.realizou?'done':'no'):''}">${k+1}</span>
-        <span style="min-width:0;display:grid;gap:3px"><span class="who">${esc(r[C.nome])}</span><span class="sub">${esc(r[C.end])} · ${esc(r[C.bairro])}</span><span style="display:flex;gap:4px;flex-wrap:wrap">${st}<span class="pill">Pedido: ${esc(r[C.dia])}</span>${r[C.atendido]?'<span class="pill ok">Já atendido</span>':''}</span></span>
+      const p=r[C.p24];
+      const st=!rec?(p?'':'<span class="pill red">Pendente</span>'):!rec.realizou?`<span class="pill">${esc(rec.motivo)}</span>`:rec.positivou?'<span class="pill ok">Positivou</span>':'<span class="pill warn">Não positivou</span>';
+      const pin=rec?(rec.realizou?'done':'no'):p?(p.s==='Aderiu'?'done':'no'):'';
+      return `<li><button data-cod="${r[C.cod]}"><span class="pin ${pin}">${k+1}</span>
+        <span style="min-width:0;display:grid;gap:3px"><span class="who">${esc(r[C.nome])}</span><span class="sub">${esc(r[C.end])} · ${esc(r[C.bairro])}</span><span style="display:flex;gap:4px;flex-wrap:wrap">${st}${p24pill(r)}<span class="pill">Pedido: ${esc(r[C.dia])}</span>${r[C.atendido]?'<span class="pill ok">Já atendido</span>':''}</span></span>
         <span class="chev" aria-hidden="true">›</span></button></li>`;}).join('')}</ol></section></div>`;
   el.querySelector('.stops').onclick=e=>{ const b=e.target.closest('button[data-cod]'); if(b) openSheet(+b.dataset.cod); };
   redraw=()=>{};
@@ -498,13 +529,14 @@ function renderSheet(first){
       <div><span class="eyebrow">Cliente ${r[C.cod]}</span><h2>${esc(r[C.nome])}</h2>
         <p class="sub" style="margin:6px 0 10px">${esc(r[C.end])}${r[C.comp]?', '+esc(r[C.comp]):''} · ${esc(r[C.bairro])}, ${esc(r[C.cidade])} · CEP ${esc(r[C.cep])}</p>
         <div class="btns"><a class="btn red" href="https://www.google.com/maps/dir/?api=1&destination=${r[C.lat]},${r[C.lon]}" target="_blank" rel="noopener">Ir até o cliente</a>
-          <span class="pill">Pedido: ${esc(r[C.dia])}</span>${r[C.atendido]?'<span class="pill ok">Já atendido</span>':''}${r[C.ausente]?'<span class="pill warn">Comprador ausente em set.</span>':''}</div></div>
+          ${p24pill(r)}<span class="pill">Pedido: ${esc(r[C.dia])}</span>${r[C.atendido]?'<span class="pill ok">Já atendido</span>':''}${r[C.ausente]?'<span class="pill warn">Comprador ausente em set.</span>':''}</div></div>
+      ${p24block(r)}
       ${telBlock(r[C.cvnome],r[C.cvtel],'Consultor de vendas (CV '+r[C.cv]+')')}
       <details class="legend-box" ${legOpen?'open':''}><summary>Informações comerciais</summary><dl class="kv">
         ${kv('Código',r[C.cod])}${kv('Nome fantasia',esc(r[C.nome]))}${kv('CPF/CNPJ',fmtDoc(r[C.doc]))}${kv('Segmento',esc(r[C.seg]))}${kv('Sub canal',esc(r[C.sub]))}
         ${kv('Dia de visita (pedido)',esc(r[C.dia]))}${kv('GC',esc(r[C.gc]))}${kv('CV',r[C.cv]+' · '+esc(r[C.cvnome]))}${kv('Telefone CV',fmtTel(r[C.cvtel])||'–')}
         ${kv('Supervisor (SV)',esc(r[C.svnome]))}${kv('Telefone SV',fmtTel(r[C.svtel])||'–')}${kv('Status de setembro',esc(r[C.statusset])||'–')}
-        ${kv('Atendido por desenvolvedor',esc(r[C.atendpor]))}${kv('APP',esc(r[C.app]))}${kv('Endereço',esc(r[C.end]))}${kv('Complemento',esc(r[C.comp])||'–')}
+        ${kv('Origem',r[C.origem]?'Projeto 24h':'Base de novembro')}${kv('Atendido por desenvolvedor',esc(r[C.atendpor]))}${kv('APP',esc(r[C.app]))}${kv('Endereço',esc(r[C.end]))}${kv('Complemento',esc(r[C.comp])||'–')}
         ${kv('Bairro',esc(r[C.bairro]))}${kv('Cidade',esc(r[C.cidade]))}${kv('CEP',esc(r[C.cep]))}${kv('Coordenadas',r[C.lat]+', '+r[C.lon])}
       </dl></details>
       ${lastSaved?savedBlock(lastSaved,r):`<section class="form" id="form">
@@ -542,6 +574,15 @@ function renderSheet(first){
 function waButtons(rec,r){
   const t=waText(rec);
   return `<div class="btns">${r[C.cvtel]?`<a class="btn wa" data-wa="${rec.id}" href="${waURL(t,r[C.cvtel])}" target="_blank" rel="noopener">${ico.wa} Enviar ao consultor</a>`:''}<a class="btn wa" data-wa="${rec.id}" href="${waURL(t)}" target="_blank" rel="noopener" style="${r[C.cvtel]?'background:transparent;color:#4fd18b':''}">${ico.wa} Escolher contato</a></div>`;
+}
+function p24block(r){
+  if(!r[C.origem]) return '';
+  const p=r[C.p24];
+  if(!p) return `<section class="contact" style="border-left:3px solid var(--red)"><span class="eyebrow">Projeto 24h</span><strong>Ainda não visitado</strong><span class="sub">Apresentar o projeto Entrega 24 Horas nesta visita.</span></section>`;
+  const one=h=>`<div style="display:grid;gap:2px"><strong>${h.s==='Aderiu'?'Aderiu ao projeto':'Não aderiu'}${h.r?' · recusou '+esc(h.r):''}</strong><span class="sub">${fmtTS(h.t)}${h.v?' · '+esc(h.v):''}</span>${h.o?`<span>${esc(h.o)}</span>`:''}</div>`;
+  const prev=p.h.slice(0,-1).reverse();
+  return `<section class="contact" style="border-left:3px solid ${p.s==='Aderiu'?'var(--ok)':'var(--muted)'}"><span class="eyebrow">Projeto 24h · visita concluída</span>${one(p)}
+    ${prev.length?`<details><summary class="sub" style="cursor:pointer">Registros anteriores (${prev.length})</summary><div style="display:grid;gap:10px;margin-top:8px">${prev.map(one).join('')}</div></details>`:''}</section>`;
 }
 function recBlock(h,r){
   return `<div class="rec"><div class="h"><b>${fmtTS(h.ts)} · ${esc(DEVS[h.dev])}</b>${h.waAt?`<span class="pill ok">WhatsApp aberto ${fmtTS(h.waAt)}</span>`:'<span class="pill warn">Não enviado</span>'}</div>
