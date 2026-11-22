@@ -266,7 +266,8 @@ let local = {}; try{ local=JSON.parse(localStorage.getItem(LS)||'{}'); }catch(e)
 const saveLocal = () => { try{ localStorage.setItem(LS, JSON.stringify(local)); }catch(e){} };
 const remote = {};               // id -> registro vindo da planilha
 let dbState='connecting', userId=null;
-function allRecs(){ const m={...remote}; Object.values(local).forEach(r=>{ const o=m[r.id]; if(!o || (r.rev||0)>=(o.rev||0)) m[r.id]=r; }); return Object.values(m); }
+// só registros de clientes que estão na base atual (visitas antigas de clientes que saíram continuam na planilha)
+function allRecs(){ const m={...remote}; Object.values(local).forEach(r=>{ const o=m[r.id]; if(!o || (r.rev||0)>=(o.rev||0)) m[r.id]=r; }); return Object.values(m).filter(r=>byCod[r.cod]); }
 function recsOf(cod){ return allRecs().filter(r=>r.cod===cod).sort((a,b)=>b.ts.localeCompare(a.ts)); }
 function latestByCod(){ const m={}; allRecs().forEach(r=>{ if(!m[r.cod]||r.ts>m[r.cod].ts) m[r.cod]=r; }); return m; }
 async function sendToSheet(r){
