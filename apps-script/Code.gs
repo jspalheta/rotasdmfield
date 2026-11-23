@@ -31,8 +31,8 @@ function aba_() {
     sh.getRange('F:F').setNumberFormat('@');
   }
   // colunas do Projeto 24h (depois da coluna oculta de controle)
-  if (sh.getRange(1, COLUNAS.length + 2).getValue() === '') {
-    sh.getRange(1, COLUNAS.length + 2, 1, 2).setValues([['Projeto 24h', 'Recusou (24h)']]).setFontWeight('bold');
+  if (sh.getRange(1, COLUNAS.length + 4).getValue() === '') {
+    sh.getRange(1, COLUNAS.length + 2, 1, 4).setValues([['Projeto 24h', 'Negativo / recusou (24h)', 'Feedback ou motivo (24h)', 'Já fazia parte do projeto']]).setFontWeight('bold');
   }
   return sh;
 }
@@ -60,7 +60,7 @@ function deLinha_(row, raw) {
   const extra = raw ? JSON.parse(raw) : {};
   return {
     id: String(o.id), cod: Number(o.cod), dev: Number(o.dev), dataPlanejada: o.dataPlanejada instanceof Date ? Utilities.formatDate(o.dataPlanejada, 'America/Sao_Paulo', 'yyyy-MM-dd') : String(o.dataPlanejada),
-    ts: extra.ts || '', waAt: extra.waAt || null, p24: extra.p24 || null, p24r: extra.p24r || null,
+    ts: extra.ts || '', waAt: extra.waAt || null, p24: extra.p24 || null, p24r: extra.p24r || null, p24tipo: extra.p24tipo || null, p24fb: extra.p24fb || null, p24txt: extra.p24txt || '',
     realizou: o.realizou === 'SIM', positivou: o.positivou === 'SIM' ? true : o.positivou === 'NÃO' ? false : null,
     itens: o.itens ? String(o.itens).split(', ') : [], motivo: o.motivo || null, obs: String(o.obs || ''),
     rev: Number(o.rev) || 1
@@ -88,7 +88,8 @@ function doPost(e) {
     if (body.action !== 'upsert' || !body.rec || !body.rec.id) return json_({ ok: false, error: 'pedido inválido' });
     const r = body.rec;
     const sh = aba_();
-    const linha = paraLinha_(r).concat([JSON.stringify({ ts: r.ts, waAt: r.waAt || null, p24: r.p24 || null, p24r: r.p24r || null }), r.p24 || '', r.p24r || '']);
+    const linha = paraLinha_(r).concat([JSON.stringify({ ts: r.ts, waAt: r.waAt || null, p24: r.p24 || null, p24r: r.p24r || null, p24tipo: r.p24tipo || null, p24fb: r.p24fb || null, p24txt: r.p24txt || '' }),
+      r.p24 || '', r.p24r || '', r.p24txt || '', r.p24tipo === 'ja' ? 'SIM' : r.p24tipo === 'novo' ? 'NÃO' : '']);
     const n = sh.getLastRow() - 1;
     let alvo = -1;
     if (n > 0) {
