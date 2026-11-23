@@ -303,7 +303,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) pull(); 
 window.addEventListener('online',pull);
 
 let refreshT=null;
-function refresh(){ clearTimeout(refreshT); refreshT=setTimeout(()=>{ route(true); if(sheetCod!==null && document.activeElement?.id!=='obs') renderSheet(); },120); }
+function refresh(){ clearTimeout(refreshT); refreshT=setTimeout(()=>{ route(true); if(sheetCod!==null && !['obs','p24txt'].includes(document.activeElement?.id)) renderSheet(); },120); }
 
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true,2600); }
 
@@ -311,14 +311,14 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 let P24C=null;
 function p24of(r){
   if(!r[C.origem]) return null;
-  if(!P24C){ P24C={}; allRecs().forEach(x=>{ if(x.p24){ const o=P24C[x.cod]; if(!o||Date.parse(x.ts)>Date.parse(o.t)) P24C[x.cod]={s:x.p24,r:x.p24r||'',o:x.obs||'',v:DEVS[x.dev]||'',t:x.ts}; } }); }
+  if(!P24C){ P24C={}; allRecs().forEach(x=>{ if(x.p24){ const o=P24C[x.cod]; if(!o||Date.parse(x.ts)>Date.parse(o.t)) P24C[x.cod]={s:x.p24,r:x.p24r||'',o:[x.p24txt,x.obs].filter(Boolean).join(' · '),v:DEVS[x.dev]||'',t:x.ts}; } }); }
   const a=r[C.p24], b=P24C[r[C.cod]];
   if(!b) return a; if(!a) return {...b,h:[b]};
   return Date.parse(b.t)>Date.parse(a.t)?{...b,h:[...a.h,b]}:a;
 }
 function resultLine(r){
   if(!r.realizou) return `Não atendido · ${r.motivo}`;
-  const p24=r.p24?` · 24h: ${r.p24}${r.p24r?' (recusou '+r.p24r+')':''}`:'';
+  const p24=r.p24?` · 24h: ${r.p24}${r.p24r?' ('+r.p24r+')':''}`:'';
   return (r.positivou ? `Atendido · Positivou: ${r.itens.join(', ')}` : 'Atendido · Não positivou')+p24;
 }
 function waText(rec){
@@ -330,7 +330,9 @@ function waText(rec){
     `*Data/hora:* ${new Date(rec.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}\n`+
     `*Realizou o atendimento?* ${rec.realizou?'SIM':'NÃO'}\n`;
   if(rec.realizou){ t+=`*Positivou?* ${rec.positivou?'SIM':'NÃO'}\n`; if(rec.positivou) t+=`*O que positivou:* ${rec.itens.join(', ')}\n`;
-    if(rec.p24){ t+=`*Aderiu ao Projeto 24h?* ${rec.p24==='Aderiu'?'SIM':'NÃO'}\n`; if(rec.p24r) t+=`*O que recusou:* ${rec.p24r}\n`; } }
+    if(rec.p24tipo){ t+=`*Já fazia parte do Projeto 24h?* ${rec.p24tipo==='ja'?'SIM':'NÃO'}\n`;
+      if(rec.p24tipo==='ja'){ t+=`*Feedback:* ${rec.p24fb.toUpperCase()}\n`; if(rec.p24r) t+=`*Ponto negativo:* ${rec.p24r}\n`; if(rec.p24txt) t+=`*Feedback do cliente:* ${rec.p24txt}\n`; }
+      else { t+=`*Quer aderir ao projeto?* ${rec.p24==='Aderiu'?'SIM (formulário de adesão enviado)':'NÃO'}\n`; if(rec.p24txt) t+=`*Motivo:* ${rec.p24txt}\n`; } } }
   else t+=`*Motivo:* ${rec.motivo}\n`;
   if(rec.obs) t+=`*Observação:* ${rec.obs}\n`;
   if(!rec.p24 && p24of(c)) t+=`*Projeto 24h:* ${p24of(c).s}${p24of(c).r?' (recusou '+p24of(c).r+')':''} em ${fmtTS(p24of(c).t)}\n`;
@@ -341,7 +343,7 @@ function waURL(text, tel){ return (tel?`https://wa.me/55${tel}`:'https://wa.me/'
 function markOpened(rec){ const r={...rec, waAt:new Date().toISOString(), rev:(rec.rev||0)+1}; pushRec(r); refresh(); }
 
 /* ================= nav / map ================= */
-let state={dev:null,date:null,wd:'todos'};
+let state={dev:null,date:null,wd:'todos',base:'todos'};
 const ICON_CHART='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 20h16v2H2V2h2v18zm3-3V10h3v7H7zm5 0V5h3v12h-3zm5 0v-5h3v5h-3z"/></svg>';
 function renderHeader(back){ const b=document.getElementById('back'); b.hidden=!back; b.onclick=()=>{ location.hash=back; }; }
 const BOUNDS=(()=>{let a=[90,-90,180,-180];rows.forEach(r=>{a[0]=Math.min(a[0],r[C.lat]);a[1]=Math.max(a[1],r[C.lat]);a[2]=Math.min(a[2],r[C.lon]);a[3]=Math.max(a[3],r[C.lon]);});return a;})();
@@ -379,14 +381,23 @@ function stats(recs, filterRows){
   return {vis, reg:last.length, real:real.length, pos:pos.length, itens, mot, plannedToDate, base:filterRows.length};
 }
 const P24S = ['APP','PROJETO','APP E PROJETO'];
+const JP_POS='Já participa · positivo', JP_NEG='Já participa · negativo';
+const FORM_24H='https://docs.google.com/forms/d/1PMpMpDZIAKJw_xJ8AaYhkeUbqjSZBQnTSJ8T8BuTGBk/viewform';
 function p24stats(rs){
   const pr=rs.filter(r=>r[C.origem]), v=pr.filter(r=>p24of(r));
-  const ad=v.filter(r=>p24of(r).s==='Aderiu').length, na=v.length-ad;
-  const rec=P24S.map(k=>v.filter(r=>p24of(r).s!=='Aderiu'&&p24of(r).r===k).length);
-  return {proj:pr.length, vis:v.length, ad, na, falta:pr.length-v.length, rec, semInfo:na-rec.reduce((a,b)=>a+b,0)};
+  const S=r=>p24of(r).s;
+  const ad=v.filter(r=>S(r)==='Aderiu').length, na=v.filter(r=>S(r)==='Não aderiu').length;
+  const jpp=v.filter(r=>S(r)===JP_POS).length, jpn=v.filter(r=>S(r)===JP_NEG).length;
+  const neg=v.filter(r=>S(r)==='Não aderiu'||S(r)===JP_NEG);
+  const rec=P24S.map(k=>neg.filter(r=>p24of(r).r===k).length);
+  return {proj:pr.length, vis:v.length, ad, na, jpp, jpn, jp:jpp+jpn, falta:pr.length-v.length, rec, semInfo:neg.length-rec.reduce((a,b)=>a+b,0)};
 }
 function p24pill(r){ const p=p24of(r); if(!p) return r[C.origem]?'<span class="pill red">Projeto 24h</span>':'';
-  return p.s==='Aderiu'?'<span class="pill ok">Aderiu 24h</span>':`<span class="pill">Não aderiu 24h${p.r?' · '+esc(p.r):''}</span>`; }
+  if(p.s==='Aderiu') return '<span class="pill ok">Aderiu 24h</span>';
+  if(p.s===JP_POS) return '<span class="pill ok">Já participa 24h · positivo</span>';
+  if(p.s===JP_NEG) return `<span class="pill warn">Já participa 24h · negativo${p.r?' · '+esc(p.r):''}</span>`;
+  return `<span class="pill">Não aderiu 24h${p.r?' · '+esc(p.r):''}</span>`; }
+const p24done = p => p && p.s!=='Não aderiu';
 function home(){
   const last=latestByCod();
   const per=DEVS.map((_,i)=>stats(last,rows.filter(r=>r[C.dev]===i)));
@@ -404,18 +415,19 @@ function p24panel(base, dev){
   let tbl='';
   if(dev===null){
     const per=DEVS.map((_,i)=>p24stats(rows.filter(r=>r[C.dev]===i)));
-    tbl=`<div class="scroll" style="margin-top:12px"><table class="t"><thead><tr><th>Desenvolvedor</th><th>Clientes 24h</th><th>Visitados</th><th>Aderiu</th><th>Não aderiu</th><th>A visitar</th><th>Adesão</th></tr></thead>
-      <tbody>${per.map((p,i)=>`<tr><td>${esc(DEVS[i])}</td><td>${p.proj}</td><td>${p.vis}</td><td>${p.ad}</td><td>${p.na}</td><td>${p.falta}</td><td>${pct(p.ad,p.vis)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td>Total</td><td>${P.proj}</td><td>${P.vis}</td><td>${P.ad}</td><td>${P.na}</td><td>${P.falta}</td><td>${pct(P.ad,P.vis)}</td></tr></tfoot></table></div>`;
+    tbl=`<div class="scroll" style="margin-top:12px"><table class="t"><thead><tr><th>Desenvolvedor</th><th>Clientes 24h</th><th>Visitados</th><th>Aderiu</th><th>Não aderiu</th><th>Já participava</th><th>A visitar</th><th>Adesão</th></tr></thead>
+      <tbody>${per.map((p,i)=>`<tr><td>${esc(DEVS[i])}</td><td>${p.proj}</td><td>${p.vis}</td><td>${p.ad}</td><td>${p.na}</td><td>${p.jp}</td><td>${p.falta}</td><td>${pct(p.ad,p.ad+p.na)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td>${P.proj}</td><td>${P.vis}</td><td>${P.ad}</td><td>${P.na}</td><td>${P.jp}</td><td>${P.falta}</td><td>${pct(P.ad,P.ad+P.na)}</td></tr></tfoot></table></div>`;
   }
   return `<div class="panel"><h3>Projeto 24h</h3>
     <div class="kpis" style="margin-top:10px">
       <div class="kpi"><span class="eyebrow">Clientes do projeto</span><b class="num">${P.proj}</b><small>${P.falta} ainda a visitar</small></div>
       <div class="kpi"><span class="eyebrow">Visitados</span><b class="num">${P.vis}</b><small>${pct(P.vis,P.proj)} do projeto</small></div>
-      <div class="kpi"><span class="eyebrow">Aderiu</span><b class="num red">${P.ad}</b><small>adesão de ${pct(P.ad,P.vis)} dos visitados</small></div>
-      <div class="kpi"><span class="eyebrow">Não aderiu</span><b class="num">${P.na}</b><small>com observação do desenvolvedor</small></div>
+      <div class="kpi"><span class="eyebrow">Aderiu</span><b class="num red">${P.ad}</b><small>adesão de ${pct(P.ad,P.ad+P.na)} de quem não participava</small></div>
+      <div class="kpi"><span class="eyebrow">Não aderiu</span><b class="num">${P.na}</b><small>com motivo registrado</small></div>
+      <div class="kpi"><span class="eyebrow">Já participava</span><b class="num">${P.jp}</b><small>${P.jpp} feedback positivo · ${P.jpn} negativo</small></div>
     </div>
-    ${P.na?`<div class="bars"><span class="eyebrow" style="margin-top:6px">Não aderiu · o que recusou</span>${P24S.map((k,j)=>`<div class="bar" style="--c:var(--muted)"><span>${k}</span><span class="t"><b style="width:${P.rec[j]/maxR*100}%"></b></span><span class="v">${P.rec[j]}</span></div>`).join('')}${P.semInfo?`<div class="bar" style="--c:var(--muted)"><span>Só observação</span><span class="t"><b style="width:${P.semInfo/maxR*100}%"></b></span><span class="v">${P.semInfo}</span></div>`:''}</div>`:''}
+    ${(P.na+P.jpn)?`<div class="bars"><span class="eyebrow" style="margin-top:6px">Não aderiu ou feedback negativo · o que recusou</span>${P24S.map((k,j)=>`<div class="bar" style="--c:var(--muted)"><span>${k}</span><span class="t"><b style="width:${P.rec[j]/maxR*100}%"></b></span><span class="v">${P.rec[j]}</span></div>`).join('')}${P.semInfo?`<div class="bar" style="--c:var(--muted)"><span>Só motivo escrito</span><span class="t"><b style="width:${P.semInfo/maxR*100}%"></b></span><span class="v">${P.semInfo}</span></div>`:''}</div>`:''}
     ${tbl}</div>`;
 }
 function summary(dev){
@@ -471,10 +483,12 @@ function summary(dev){
 /* ================= developer view ================= */
 function gmapsLinks(rs){ const out=[],step=9; for(let i=0;i<rs.length-1;i+=step){ const seg=rs.slice(i,i+step+1); out.push({from:i+1,to:i+seg.length,url:'https://www.google.com/maps/dir/'+seg.map(r=>r[C.lat]+','+r[C.lon]).join('/')+'/'}); }
   if(rs.length===1) out.push({from:1,to:1,url:`https://www.google.com/maps/search/?api=1&query=${rs[0][C.lat]},${rs[0][C.lon]}`}); return out; }
-function datesFor(i){ return DATES.filter(d=> byDevDay[i+'|'+d] && (state.wd==='todos' || WD[dOf(d).getDay()]===state.wd)); }
+const baseOk = r => state.base==='todos' || (state.base==='p24' ? r[C.origem]===1 : !r[C.origem]);
+const dayRows = (i,d) => (byDevDay[i+'|'+d]||[]).filter(baseOk);
+function datesFor(i){ return DATES.filter(d=> dayRows(i,d).length && (state.wd==='todos' || WD[dOf(d).getDay()]===state.wd)); }
 function devView(i,keep){
   const app=document.getElementById('app'); const mine=rows.filter(r=>r[C.dev]===i); const last=latestByCod();
-  let ds=datesFor(i); if(!ds.length){ state.wd='todos'; ds=DATES; }
+  let ds=datesFor(i); if(!ds.length){ state.wd='todos'; state.base='todos'; ds=datesFor(i); }
   if(!state.date || !ds.includes(state.date)) state.date = ds.find(d=>d>=todayISO) || ds[0];
   const reg=mine.filter(r=>last[r[C.cod]]||r[C.atendido]||p24of(r)).length, pos=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].positivou).length, real=mine.filter(r=>last[r[C.cod]]&&last[r[C.cod]].realizou).length;
   const pend=allRecs().filter(r=>r.dev===i&&!r.waAt).sort((a,b)=>b.ts.localeCompare(a.ts));
@@ -487,12 +501,14 @@ function devView(i,keep){
     <div class="list">${pend.slice(0,8).map(r=>{const c=byCod[r.cod];return `<div class="it"><span><b>${esc(c[C.nome])}</b> <span class="sub">· ${fmtTS(r.ts)} · ${esc(resultLine(r))}</span></span><button class="btn wa" data-open="${r.cod}">Abrir e enviar</button></div>`}).join('')}${pend.length>8?`<span class="sub">e mais ${pend.length-8}…</span>`:''}</div></section>`:''}
   <section class="filters">
     <div class="field"><label for="fwd">Dia de pedido</label><select id="fwd"><option value="todos">Todos os dias</option>${['Seg','Ter','Qua','Qui','Sex'].map(w=>`<option value="${w}" ${state.wd===w?'selected':''}>${WDL[WD.indexOf(w)][0].toUpperCase()+WDL[WD.indexOf(w)].slice(1)}</option>`).join('')}</select></div>
-    <div class="field"><label for="fdt">Data</label><select id="fdt">${ds.map(d=>`<option value="${d}" ${d===state.date?'selected':''}>${WD[dOf(d).getDay()]} ${fmtD(d)} · ${(byDevDay[i+'|'+d]||[]).length} clientes</option>`).join('')}</select></div>
+    <div class="field"><label for="fbase">Base</label><select id="fbase"><option value="todos">Todas as bases</option><option value="p24" ${state.base==='p24'?'selected':''}>Base Projeto 24H</option><option value="b2b" ${state.base==='b2b'?'selected':''}>Base B2B</option></select></div>
+    <div class="field"><label for="fdt">Data</label><select id="fdt">${ds.map(d=>`<option value="${d}" ${d===state.date?'selected':''}>${WD[dOf(d).getDay()]} ${fmtD(d)} · ${dayRows(i,d).length} clientes</option>`).join('')}</select></div>
   </section>
-  <div class="strip" id="strip" role="group" aria-label="Datas">${ds.map(d=>{const rs=byDevDay[i+'|'+d]||[];const done=rs.filter(r=>last[r[C.cod]]||p24of(r)).length;
+  <div class="strip" id="strip" role="group" aria-label="Datas">${ds.map(d=>{const rs=dayRows(i,d);const done=rs.filter(r=>last[r[C.cod]]||p24of(r)).length;
     return `<button class="day${d===todayISO?' today':''}" data-date="${d}" aria-pressed="${d===state.date}"><span class="w">${d===todayISO?'Hoje':WD[dOf(d).getDay()]}</span><span class="d num">${dOf(d).getDate()}</span><span class="n">${done}/${rs.length}</span><span class="p"><b style="width:${rs.length?done/rs.length*100:0}%"></b></span></button>`}).join('')}</div>
   <div id="dayview"></div>`;
   document.getElementById('fwd').onchange=e=>{ state.wd=e.target.value; state.date=null; devView(i); };
+  document.getElementById('fbase').onchange=e=>{ state.base=e.target.value; devView(i); };
   document.getElementById('fdt').onchange=e=>{ state.date=e.target.value; devView(i); };
   document.getElementById('strip').onclick=e=>{ const b=e.target.closest('.day'); if(b){ state.date=b.dataset.date; devView(i); } };
   app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openSheet(+b.dataset.open));
@@ -501,7 +517,7 @@ function devView(i,keep){
   if(keep) window.scrollTo(0,scrollY);
 }
 function dayView(i){
-  const dt=state.date, rs=byDevDay[i+'|'+dt]||[], el=document.getElementById('dayview'), d=dOf(dt), links=gmapsLinks(rs), last=latestByCod();
+  const dt=state.date, rs=dayRows(i,dt), el=document.getElementById('dayview'), d=dOf(dt), links=gmapsLinks(rs), last=latestByCod();
   el.innerHTML=`<div style="display:grid;gap:12px">
     <section class="panel" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap"><div><span class="eyebrow">${WDL[d.getDay()]}</span><h2>${fmtD(dt)} · ${rs.length} visitas</h2></div>
@@ -511,8 +527,8 @@ function dayView(i){
     <section class="panel" style="padding-block:6px"><ol class="stops">${rs.map((r,k)=>{ const rec=last[r[C.cod]];
       const p=p24of(r);
       const st=!rec?(p?'':'<span class="pill red">Pendente</span>'):!rec.realizou?`<span class="pill">${esc(rec.motivo)}</span>`:rec.positivou?'<span class="pill ok">Positivou</span>':'<span class="pill warn">Não positivou</span>';
-      const pin=rec?(rec.realizou?'done':'no'):p?(p.s==='Aderiu'?'done':'no'):'';
-      return `<li><button data-cod="${r[C.cod]}"><span class="pin ${pin}">${k+1}</span>
+      const pin=rec?(rec.realizou?'done':'no'):p?(p24done(p)?'done':'no'):'';
+      return `<li><button data-cod="${r[C.cod]}"><span class="pin ${pin}">${r[C.ordem]}</span>
         <span style="min-width:0;display:grid;gap:3px"><span class="who">${esc(r[C.nome])}</span><span class="sub">${esc(r[C.end])} · ${esc(r[C.bairro])}</span><span style="display:flex;gap:4px;flex-wrap:wrap">${st}${p24pill(r)}<span class="pill">Pedido: ${esc(r[C.dia])}</span>${r[C.atendido]?'<span class="pill ok">Já atendido</span>':''}</span></span>
         <span class="chev" aria-hidden="true">›</span></button></li>`;}).join('')}</ol></section></div>`;
   el.querySelector('.stops').onclick=e=>{ const b=e.target.closest('button[data-cod]'); if(b) openSheet(+b.dataset.cod); };
@@ -523,12 +539,12 @@ function dayView(i){
 let sheetCod=null, form=null, lastSaved=null;
 const ico={phone:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>',
   wa:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>'};
-function openSheet(cod){ sheetCod=cod; form={realizou:null,positivou:null,itens:[],motivo:null,obs:'',p24:null,p24r:null}; lastSaved=null; renderSheet(true); }
+function openSheet(cod){ sheetCod=cod; form={realizou:null,positivou:null,itens:[],motivo:null,obs:'',p24tipo:null,p24fb:null,p24ad:null,p24r:null,p24txt:''}; lastSaved=null; renderSheet(true); }
 function closeSheet(){ sheetCod=null; document.getElementById('sheetRoot').innerHTML=''; document.body.style.overflow=''; }
 function renderSheet(first){
   if(sheetCod===null) return;
   const r=byCod[sheetCod], hist=recsOf(sheetCod), root=document.getElementById('sheetRoot');
-  const prevScroll = root.querySelector('.sheet')?.scrollTop||0; const obsVal=document.getElementById('obs')?.value; if(obsVal!==undefined) form.obs=obsVal;
+  const prevScroll = root.querySelector('.sheet')?.scrollTop||0; const obsVal=document.getElementById('obs')?.value; if(obsVal!==undefined) form.obs=obsVal; const t24=document.getElementById('p24txt')?.value; if(t24!==undefined) form.p24txt=t24;
   const legOpen = root.querySelector('details.legend-box')?.open||false;
   const kv=(k,v)=>v?`<dt>${k}</dt><dd>${v}</dd>`:'';
   const telBlock=(nome,tel,papel)=>`<div class="contact"><span class="eyebrow">${papel}</span><strong>${esc(nome)}</strong>${tel?`<span class="tel num">${fmtTel(tel)}</span>
@@ -555,8 +571,12 @@ function renderSheet(first){
         <h3>Registrar visita</h3>
         <div class="q"><span>Realizou o atendimento?</span><div class="seg yes"><button class="y" data-k="realizou" data-v="1" ${yes(true,form.realizou)}>Sim</button><button data-k="realizou" data-v="0" ${yes(false,form.realizou)}>Não</button></div></div>
         ${form.realizou===true?`<div class="q"><span>Positivou?</span><div class="seg yes"><button class="y" data-k="positivou" data-v="1" ${yes(true,form.positivou)}>Sim</button><button data-k="positivou" data-v="0" ${yes(false,form.positivou)}>Não</button></div></div>`:''}
-        ${form.realizou===true&&r[C.origem]?`<div class="q" style="border-top:1px solid var(--line);padding-top:12px"><span>Aderiu ao Projeto 24h?</span><div class="seg yes"><button class="y" data-k="p24" data-v="Aderiu" ${yes('Aderiu',form.p24)}>Sim</button><button data-k="p24" data-v="Não aderiu" ${yes('Não aderiu',form.p24)}>Não</button></div></div>`:''}
-        ${form.realizou===true&&r[C.origem]&&form.p24==='Não aderiu'?`<div class="q"><span>O que o cliente recusou?</span><div class="seg multi">${P24S.map(k=>`<button data-k="p24r" data-v="${k}" aria-pressed="${form.p24r===k}">${k}</button>`).join('')}</div></div>`:''}
+        ${form.realizou===true&&r[C.origem]?`<div class="q" style="border-top:1px solid var(--line);padding-top:12px"><span>Cliente já fazia parte do Projeto 24h?</span><div class="seg yes"><button class="y" data-k="p24tipo" data-v="ja" ${yes('ja',form.p24tipo)}>Sim</button><button data-k="p24tipo" data-v="novo" ${yes('novo',form.p24tipo)}>Não</button></div></div>`:''}
+        ${form.realizou===true&&r[C.origem]&&form.p24tipo==='ja'?`<div class="q"><span>Feedback do cliente sobre o projeto</span><div class="seg yes"><button class="y" data-k="p24fb" data-v="Positivo" ${yes('Positivo',form.p24fb)}>Positivo</button><button data-k="p24fb" data-v="Negativo" ${yes('Negativo',form.p24fb)}>Negativo</button></div></div>`:''}
+        ${form.realizou===true&&r[C.origem]&&form.p24tipo==='ja'&&form.p24fb==='Negativo'?`<div class="q"><span>O que está negativo?</span><div class="seg multi">${P24S.map(k=>`<button data-k="p24r" data-v="${k}" aria-pressed="${form.p24r===k}">${k}</button>`).join('')}</div></div>`:''}
+        ${form.realizou===true&&r[C.origem]&&form.p24tipo==='novo'?`<div class="q"><span>Quer aderir ao projeto?</span><div class="seg yes"><button class="y" data-k="p24ad" data-v="sim" ${yes('sim',form.p24ad)}>Sim</button><button data-k="p24ad" data-v="nao" ${yes('nao',form.p24ad)}>Não</button></div></div>`:''}
+        ${form.realizou===true&&r[C.origem]&&form.p24tipo==='novo'&&form.p24ad==='sim'?`<div class="q" style="background:var(--panel2);border:1px solid var(--ok);border-radius:6px;padding:12px"><span>Peça o ok do cliente no formulário de adesão</span><div class="btns"><a class="btn wa" href="${FORM_24H}" target="_blank" rel="noopener">Abrir formulário de adesão</a><a class="btn ghost" href="${waURL('Olá! Segue o link para confirmar sua adesão ao Projeto Entrega 24 Horas: '+FORM_24H)}" target="_blank" rel="noopener">${ico.wa} Enviar link ao cliente</a><button class="btn ghost" data-copy="${FORM_24H}">Copiar link</button></div><span class="sub">Depois que o cliente confirmar, finalize a visita.</span></div>`:''}
+        ${form.realizou===true&&r[C.origem]&&((form.p24tipo==='ja'&&form.p24fb==='Positivo')||(form.p24tipo==='novo'&&form.p24ad==='nao'))?`<div class="q"><label for="p24txt" style="font-weight:600">${form.p24tipo==='ja'?'Descreva o feedback positivo do cliente':'Motivo para não aderir'}</label><textarea id="p24txt" placeholder="${form.p24tipo==='ja'?'Ex.: entregas chegando no dia seguinte, pedidos pelo app mais rápidos…':'Ex.: compra só quinzenal, prefere pedir com o vendedor…'}">${esc(form.p24txt||'')}</textarea></div>`:''}
         ${form.realizou===true&&form.positivou===true?`<div class="q"><span>O que positivou? <span class="muted" style="font-weight:400">(marque todos)</span></span><div class="seg multi yes">${ITENS.map(it=>`<button class="y" data-k="item" data-v="${it}" aria-pressed="${form.itens.includes(it)}">${it}</button>`).join('')}</div></div>`:''}
         ${form.realizou===false?`<div class="q"><span>Motivo</span><div class="seg multi">${MOTIVOS.map(m=>`<button data-k="motivo" data-v="${m}" aria-pressed="${form.motivo===m}">${m}</button>`).join('')}</div></div>`:''}
         <div class="q"><label for="obs" style="font-weight:600">Observação</label><textarea id="obs" placeholder="Ex.: comprador volta às 15h, pediu tabela de preços…">${esc(form.obs)}</textarea></div>
@@ -574,8 +594,10 @@ function renderSheet(first){
     const b=e.target.closest('button'); if(!b) return;
     if(b.dataset.copy){ navigator.clipboard.writeText(b.dataset.copy).then(()=>toast('Número copiado')).catch(()=>toast('Copie o número na tela')); return; }
     if(b.dataset.k){ const k=b.dataset.k,v=b.dataset.v;
-      if(k==='realizou'){ form.realizou=v==='1'; form.positivou=null; form.itens=[]; form.motivo=null; form.p24=null; form.p24r=null; }
-      if(k==='p24'){ form.p24=v; form.p24r=null; }
+      if(k==='realizou'){ form.realizou=v==='1'; form.positivou=null; form.itens=[]; form.motivo=null; form.p24tipo=null; form.p24fb=null; form.p24ad=null; form.p24r=null; form.p24txt=''; }
+      if(k==='p24tipo'){ form.p24tipo=v; form.p24fb=null; form.p24ad=null; form.p24r=null; }
+      if(k==='p24fb'){ form.p24fb=v; form.p24r=null; }
+      if(k==='p24ad') form.p24ad=v;
       if(k==='p24r') form.p24r=v;
       if(k==='positivou'){ form.positivou=v==='1'; form.itens=[]; }
       if(k==='item'){ form.itens=form.itens.includes(v)?form.itens.filter(x=>x!==v):[...form.itens,v]; }
@@ -583,7 +605,7 @@ function renderSheet(first){
       renderSheet(); return; }
     if(b.id==='save') return save(r);
     if(b.dataset.wa){ const rec=allRecs().find(x=>x.id===b.dataset.wa); if(rec) markOpened(rec); return; }
-    if(b.id==='again'){ lastSaved=null; form={realizou:null,positivou:null,itens:[],motivo:null,obs:'',p24:null,p24r:null}; renderSheet(); }
+    if(b.id==='again'){ lastSaved=null; form={realizou:null,positivou:null,itens:[],motivo:null,obs:'',p24tipo:null,p24fb:null,p24ad:null,p24r:null,p24txt:''}; renderSheet(); }
   };
   sh.querySelectorAll('a[data-wa]').forEach(a=>a.addEventListener('click',()=>{ const rec=allRecs().find(x=>x.id===a.dataset.wa); if(rec) markOpened(rec); }));
 }
@@ -595,7 +617,7 @@ function p24block(r){
   if(!r[C.origem]) return '';
   const p=p24of(r);
   if(!p) return `<section class="contact" style="border-left:3px solid var(--red)"><span class="eyebrow">Projeto 24h</span><strong>Ainda não visitado</strong><span class="sub">Apresente o projeto Entrega 24 Horas e registre a resposta em "Registrar visita".</span></section>`;
-  const one=h=>`<div style="display:grid;gap:2px"><strong>${h.s==='Aderiu'?'Aderiu ao projeto':'Não aderiu'}${h.r?' · recusou '+esc(h.r):''}</strong><span class="sub">${fmtTS(h.t)}${h.v?' · '+esc(h.v):''}</span>${h.o?`<span>${esc(h.o)}</span>`:''}</div>`;
+  const one=h=>`<div style="display:grid;gap:2px"><strong>${h.s==='Aderiu'?'Aderiu ao projeto':h.s==='Não aderiu'?'Não aderiu':esc(h.s)}${h.r?' · '+esc(h.r):''}</strong><span class="sub">${fmtTS(h.t)}${h.v?' · '+esc(h.v):''}</span>${h.o?`<span>${esc(h.o)}</span>`:''}</div>`;
   const prev=p.h.slice(0,-1).reverse();
   return `<section class="contact" style="border-left:3px solid ${p.s==='Aderiu'?'var(--ok)':'var(--muted)'}"><span class="eyebrow">Projeto 24h · visita concluída</span>${one(p)}
     ${prev.length?`<details><summary class="sub" style="cursor:pointer">Registros anteriores (${prev.length})</summary><div style="display:grid;gap:10px;margin-top:8px">${prev.map(one).join('')}</div></details>`:''}</section>`;
@@ -618,13 +640,23 @@ function save(r){
   else if(form.realizou && form.positivou===null) msg='Responda se positivou.';
   else if(form.realizou && form.positivou && !form.itens.length) msg='Marque o que positivou.';
   else if(!form.realizou && !form.motivo) msg='Escolha o motivo do não atendimento.';
-  else if(form.realizou && r[C.origem] && !form.p24) msg='Responda se o cliente aderiu ao Projeto 24h.';
-  else if(form.p24==='Não aderiu' && !form.p24r) msg='Escolha o que o cliente recusou.';
+  else if(form.realizou && r[C.origem]){
+    const tx=(document.getElementById('p24txt')?.value||'').trim(); form.p24txt=tx;
+    if(!form.p24tipo) msg='Responda se o cliente já fazia parte do Projeto 24h.';
+    else if(form.p24tipo==='ja' && !form.p24fb) msg='Escolha se o feedback foi positivo ou negativo.';
+    else if(form.p24tipo==='ja' && form.p24fb==='Negativo' && !form.p24r) msg='Escolha o que está negativo: APP, PROJETO ou APP E PROJETO.';
+    else if(form.p24tipo==='ja' && form.p24fb==='Positivo' && !tx) msg='Descreva o feedback positivo do cliente.';
+    else if(form.p24tipo==='novo' && !form.p24ad) msg='Responda se o cliente quer aderir ao projeto.';
+    else if(form.p24tipo==='novo' && form.p24ad==='nao' && !tx) msg='Informe o motivo para não aderir.';
+  }
   if(msg){ err.textContent=msg; err.hidden=false; return; }
   const ts=new Date().toISOString();
   const rec={id:`${r[C.cod]}-${Date.now()}`, cod:r[C.cod], dev:r[C.dev], dataPlanejada:r[C.data], ts, realizou:form.realizou,
     positivou:form.realizou?form.positivou:null, itens:form.realizou&&form.positivou?ITENS.filter(x=>form.itens.includes(x)):[], motivo:form.realizou?null:form.motivo,
-    obs:form.obs, waAt:null, rev:1, autor:userId, p24:form.realizou&&r[C.origem]?form.p24:null, p24r:form.realizou&&form.p24==='Não aderiu'?form.p24r:null};
+    obs:form.obs, waAt:null, rev:1, autor:userId, ...(form.realizou&&r[C.origem]?{p24tipo:form.p24tipo, p24fb:form.p24tipo==='ja'?form.p24fb:null,
+      p24:form.p24tipo==='ja'?(form.p24fb==='Positivo'?JP_POS:JP_NEG):(form.p24ad==='sim'?'Aderiu':'Não aderiu'),
+      p24r:form.p24tipo==='ja'&&form.p24fb==='Negativo'?form.p24r:null,
+      p24txt:(form.p24tipo==='ja'&&form.p24fb==='Positivo')||(form.p24tipo==='novo'&&form.p24ad==='nao')?form.p24txt:''}:{})};
   lastSaved=rec; pushRec(rec); toast('Visita salva às '+new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
   renderSheet(); refresh();
 }
