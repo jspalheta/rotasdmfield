@@ -230,8 +230,8 @@ textarea{width:100%;min-height:84px;resize:vertical}
 <div id="sheetRoot"></div>
 <div class="toast" id="toast" hidden></div>
 
-<script src="config.js"></script>
-<script src="dados/rotas.js"></script>
+<script>/* sempre busca a versão mais recente dos dados e da configuração */
+var __v=Date.now(); document.write('<script src="config.js?v='+__v+'"><\/script><script src="dados/rotas.js?v='+__v+'"><\/script>');</script>
 <script>
 const DATA = window.DATA;
 const C = DATA.cols.reduce((o,k,i)=>(o[k]=i,o),{});
